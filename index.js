@@ -12,7 +12,7 @@ const app = express();
  
 
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174'],
+  origin: ['http://troop423.netlify.app', 'http://troop423-admin-site.netlify.app'],
   credentials: true,
 }));
 app.use(express.json());
@@ -142,7 +142,3 @@ app.get('/api/announcement', async (req, res) => {
 });
 
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
