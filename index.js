@@ -3,7 +3,6 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { Pool } = require('pg');
-
 const session = require('express-session');
 const cors = require('cors');
 const express = require('express');
@@ -23,20 +22,27 @@ app.use(session({
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production', // true in prod, false in dev
+    secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
   },
 }));
 
-// Middleware to protect admin routes
+// Admin auth
 const checkAdmin = (req, res, next) => {
-  if (req.session && req.session.isAdmin) {
-    return next();
-  }
+  if (req.session && req.session.isAdmin) return next();
   return res.status(403).json({ error: 'Admin access required' });
 };
 
-// Admin login route
+// Database API key protection middleware
+const checkDatabaseApiKey = (req, res, next) => {
+  const expectedKey = process.env.DATABASE_API_KEY;
+  if (!expectedKey || req.headers['x-api-key'] !== expectedKey) {
+    return res.status(401).json({ error: 'Invalid or missing API key for database access' });
+  }
+  next();
+};
+
+// Admin login
 app.post('/login', (req, res) => {
   const { password } = req.body;
   if (password === process.env.ADMIN_PASSWORD) {
@@ -46,14 +52,11 @@ app.post('/login', (req, res) => {
   res.status(401).json({ error: 'Invalid password' });
 });
 
-// Admin logout route
 app.post('/logout', (req, res) => {
-  req.session.destroy(() => {
-    res.json({ ok: true });
-  });
+  req.session.destroy(() => res.json({ ok: true }));
 });
 
-// Postgres setup — use env variables for all sensitive info
+// Postgres setup
 const pool = new Pool({
   user: process.env.PGUSER,
   host: process.env.PGHOST,
@@ -63,11 +66,11 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// Ensure uploads folder exists
+// Upload folder setup
 const uploadFolder = './uploads';
 if (!fs.existsSync(uploadFolder)) fs.mkdirSync(uploadFolder);
 
-// Multer config for uploads
+// Multer setup
 const storage = multer.diskStorage({
   destination: uploadFolder,
   filename: (_, file, cb) => {
@@ -77,21 +80,16 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// Serve uploaded files statically
 app.use('/uploads', express.static('uploads'));
 
-// Upload endpoint protected by admin check
-app.post('/api/upload', checkAdmin, upload.single('image'), async (req, res) => {
+// Upload endpoint
+app.post('/api/upload', checkAdmin, checkDatabaseApiKey, upload.single('image'), async (req, res) => {
   try {
     const { caption } = req.body;
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
     const imagePath = `/uploads/${req.file.filename}`;
-
-    await pool.query('INSERT INTO uploads (image_path, caption) VALUES ($1, $2)', [
-      imagePath,
-      caption,
-    ]);
+    await pool.query('INSERT INTO uploads (image_path, caption) VALUES ($1, $2)', [imagePath, caption]);
 
     res.json({ message: 'Upload successful!' });
   } catch (err) {
@@ -100,8 +98,8 @@ app.post('/api/upload', checkAdmin, upload.single('image'), async (req, res) => 
   }
 });
 
-// Get all uploads endpoint
-app.get('/api/uploads', async (req, res) => {
+// Get uploads
+app.get('/api/uploads', checkDatabaseApiKey, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM uploads ORDER BY created_at DESC');
     res.json(result.rows);
@@ -111,8 +109,8 @@ app.get('/api/uploads', async (req, res) => {
   }
 });
 
-// Post or update announcement (only one announcement stored)
-app.post('/api/announcement', checkAdmin, async (req, res) => {
+// Post/update announcement
+app.post('/api/announcement', checkAdmin, checkDatabaseApiKey, async (req, res) => {
   try {
     const { content } = req.body;
     if (!content || content.trim() === '') {
@@ -134,8 +132,8 @@ app.post('/api/announcement', checkAdmin, async (req, res) => {
   }
 });
 
-// Get the latest announcement
-app.get('/api/announcement', async (req, res) => {
+// Get announcement
+app.get('/api/announcement', checkDatabaseApiKey, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM announcements ORDER BY created_at DESC LIMIT 1');
     res.json(result.rows[0] || null);
@@ -149,4 +147,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
