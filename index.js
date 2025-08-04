@@ -8,26 +8,44 @@ const cors = require('cors');
 const express = require('express');
 const app = express();
 
-// CORS config for your Netlify domains
+// Allowed frontend origins for CORS
+const allowedOrigins = [
+  'https://troop423.netlify.app',
+  'https://troop423-admin-site.netlify.app'
+];
+
 app.use(cors({
-  origin: ['https://troop423.netlify.app', 'https://troop423-admin-site.netlify.app'],
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like curl, Postman)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}`;
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
   credentials: true,
 }));
 
+// Parse JSON bodies
 app.use(express.json());
 
+// Parse URL-encoded bodies (form submissions)
+app.use(express.urlencoded({ extended: true }));
+
+// Session setup with secure cross-origin cookie settings
 app.use(session({
   secret: process.env.SESSION_SECRET || 'scout_secret',
   resave: false,
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',  // HTTPS only in production
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',  // cross-site cookies
   },
 }));
 
-// Admin auth
+// Admin auth middleware
 const checkAdmin = (req, res, next) => {
   if (req.session && req.session.isAdmin) return next();
   return res.status(403).json({ error: 'Admin access required' });
@@ -147,5 +165,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-
-
