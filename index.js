@@ -118,14 +118,16 @@ app.post('/api/announcement', checkAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Announcement content is required' });
     }
 
-    await pool.query('BEGIN');
-    await pool.query('DELETE FROM announcements'); // remove old announcement(s)
-    await pool.query('INSERT INTO announcements (content) VALUES ($1)', [content]);
-    await pool.query('COMMIT');
+    await pool.query(`
+      INSERT INTO announcements (id, content)
+      VALUES (1, $1)
+      ON CONFLICT (id) DO UPDATE
+      SET content = EXCLUDED.content,
+          created_at = NOW()
+    `, [content]);
 
     res.json({ message: 'Announcement posted successfully' });
   } catch (err) {
-    await pool.query('ROLLBACK');
     console.error(err);
     res.status(500).json({ error: 'Failed to post announcement' });
   }
