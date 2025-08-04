@@ -9,25 +9,26 @@ const cors = require('cors');
 const express = require('express');
 const app = express();
 
- 
-
+// CORS config for your Netlify domains
 app.use(cors({
-  origin: ['http://troop423.netlify.app', 'http://troop423-admin-site.netlify.app'],
+  origin: ['https://troop423.netlify.app', 'https://troop423-admin-site.netlify.app'],
   credentials: true,
 }));
+
 app.use(express.json());
+
 app.use(session({
   secret: process.env.SESSION_SECRET || 'scout_secret',
   resave: false,
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: false, // set to true if using https
+    secure: process.env.NODE_ENV === 'production', // true in prod, false in dev
     sameSite: 'lax',
   },
 }));
- 
 
+// Middleware to protect admin routes
 const checkAdmin = (req, res, next) => {
   if (req.session && req.session.isAdmin) {
     return next();
@@ -52,20 +53,20 @@ app.post('/logout', (req, res) => {
   });
 });
 
-// Postgres setup (fill your config)
+// Postgres setup — use env variables for all sensitive info
 const pool = new Pool({
-  user: 'postgres',
-  host: 'localhost',
-  database: 'scout_db',
-  password: 'postgres',
-  port: 5432,
+  user: process.env.PGUSER || 'postgres',
+  host: process.env.PGHOST || 'localhost',
+  database: process.env.PGDATABASE || 'scout_db',
+  password: process.env.PGPASSWORD || 'postgres',
+  port: process.env.PGPORT || 5432,
 });
 
-// Create uploads folder if doesn't exist
+// Ensure uploads folder exists
 const uploadFolder = './uploads';
 if (!fs.existsSync(uploadFolder)) fs.mkdirSync(uploadFolder);
 
-// Multer setup
+// Multer config for uploads
 const storage = multer.diskStorage({
   destination: uploadFolder,
   filename: (_, file, cb) => {
@@ -75,10 +76,10 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// Serve uploads statically
+// Serve uploaded files statically
 app.use('/uploads', express.static('uploads'));
 
-// Protect upload route with checkAdmin middleware
+// Upload endpoint protected by admin check
 app.post('/api/upload', checkAdmin, upload.single('image'), async (req, res) => {
   try {
     const { caption } = req.body;
@@ -98,7 +99,7 @@ app.post('/api/upload', checkAdmin, upload.single('image'), async (req, res) => 
   }
 });
 
-// Protected route to get all uploads
+// Get all uploads endpoint
 app.get('/api/uploads', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM uploads ORDER BY created_at DESC');
@@ -109,7 +110,7 @@ app.get('/api/uploads', async (req, res) => {
   }
 });
 
-// POST route to create/update the single announcement
+// Post or update announcement (only one announcement stored)
 app.post('/api/announcement', checkAdmin, async (req, res) => {
   try {
     const { content } = req.body;
@@ -130,7 +131,7 @@ app.post('/api/announcement', checkAdmin, async (req, res) => {
   }
 });
 
-// GET route to fetch the latest announcement
+// Get the latest announcement
 app.get('/api/announcement', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM announcements ORDER BY created_at DESC LIMIT 1');
@@ -141,8 +142,8 @@ app.get('/api/announcement', async (req, res) => {
   }
 });
 
-
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
