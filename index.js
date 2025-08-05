@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { Pool } = require('pg');
 const session = require('express-session');
+const pgSession = require('connect-pg-simple')(session); // ✅ add this
 const cors = require('cors');
 const express = require('express');
 const app = express();
@@ -24,22 +25,28 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// ✅ Neon PostgreSQL connection
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
+
+// ✅ Use PostgreSQL for sessions
 app.use(session({
+  store: new pgSession({
+    pool: pool, // Reuse existing pool
+    tableName: 'session' // You can change this if needed
+  }),
   secret: process.env.SESSION_SECRET || 'scout_secret',
   resave: false,
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: true,    // Always true for HTTPS + cross-site cookies
-    sameSite: 'none' // Required for cross-site cookies
-  },
+    secure: true,           // ✅ Required for HTTPS
+    sameSite: 'none',       // ✅ Required for cross-site cookies
+    maxAge: 7 * 24 * 60 * 60 * 1000 // ✅ 1 week
+  }
 }));
-
-// Neon PostgreSQL connection
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
 
 // Admin session middleware
 const checkAdmin = (req, res, next) => {
