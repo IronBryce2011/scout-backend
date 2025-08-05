@@ -12,6 +12,7 @@
   "license": "ISC",
   "dependencies": {
     "@auth0/auth0-react": "^2.4.0",
+    "connect-pg-simple": "^10.0.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
