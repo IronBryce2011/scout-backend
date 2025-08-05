@@ -9,6 +9,10 @@ const cors = require('cors');
 const express = require('express');
 const app = express();
 
+app.set('trust proxy', 1);
+
+
+
 const allowedOrigins = [
   'https://troop423.netlify.app',
   'https://troop423-admin-site.netlify.app'
@@ -25,11 +29,7 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ Neon PostgreSQL connection
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
+
 
 // ✅ Use PostgreSQL for sessions
 app.use(session({
@@ -47,6 +47,12 @@ app.use(session({
     maxAge: 7 * 24 * 60 * 60 * 1000 // ✅ 1 week
   }
 }));
+
+// ✅ Neon PostgreSQL connection
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
 
 // Admin session middleware
 const checkAdmin = (req, res, next) => {
