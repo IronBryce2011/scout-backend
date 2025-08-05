@@ -29,6 +29,11 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// ✅ Neon PostgreSQL connection
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
 
 
 // ✅ Use PostgreSQL for sessions
@@ -48,11 +53,6 @@ app.use(session({
   }
 }));
 
-// ✅ Neon PostgreSQL connection
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
 
 // Admin session middleware
 const checkAdmin = (req, res, next) => {
