@@ -1,17 +1,15 @@
 require('dotenv').config();
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const { v2: cloudinary } = require('cloudinary');
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const { Pool } = require('pg');
 const session = require('express-session');
-const pgSession = require('connect-pg-simple')(session); // ✅ add this
+const pgSession = require('connect-pg-simple')(session);
 const cors = require('cors');
 const express = require('express');
 const app = express();
 
 app.set('trust proxy', 1);
-
-
 
 const allowedOrigins = [
   'https://troop423.netlify.app',
@@ -29,30 +27,28 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ Neon PostgreSQL connection
+// PostgreSQL connection
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
 
-
-// ✅ Use PostgreSQL for sessions
+// Session store using PostgreSQL
 app.use(session({
   store: new pgSession({
-    pool: pool, // Reuse existing pool
-    tableName: 'session' // You can change this if needed
+    pool: pool,
+    tableName: 'session'
   }),
   secret: process.env.SESSION_SECRET || 'scout_secret',
   resave: false,
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: true,           // ✅ Required for HTTPS
-    sameSite: 'none',       // ✅ Required for cross-site cookies
-    maxAge: 7 * 24 * 60 * 60 * 1000 // ✅ 1 week
+    secure: true,
+    sameSite: 'none',
+    maxAge: 7 * 24 * 60 * 60 * 1000 // 1 week
   }
 }));
-
 
 // Admin session middleware
 const checkAdmin = (req, res, next) => {
@@ -73,19 +69,22 @@ app.post('/logout', (req, res) => {
   req.session.destroy(() => res.json({ ok: true }));
 });
 
-// Multer upload setup
-const uploadFolder = './uploads';
-if (!fs.existsSync(uploadFolder)) fs.mkdirSync(uploadFolder);
+// Cloudinary config
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
-const storage = multer.diskStorage({
-  destination: uploadFolder,
-  filename: (_, file, cb) => {
-    cb(null, `${Date.now()}${path.extname(file.originalname)}`);
+// Multer Cloudinary storage
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: 'scout_uploads',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp']
   }
 });
 const upload = multer({ storage });
-
-app.use('/uploads', express.static('uploads'));
 
 // Upload image (admin only)
 app.post('/api/upload', checkAdmin, upload.single('image'), async (req, res) => {
@@ -93,8 +92,9 @@ app.post('/api/upload', checkAdmin, upload.single('image'), async (req, res) => 
     const { caption } = req.body;
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-    const imagePath = `/uploads/${req.file.filename}`;
-    await pool.query('INSERT INTO uploads (image_path, caption) VALUES ($1, $2)', [imagePath, caption]);
+    const imageUrl = req.file.path; // Cloudinary URL
+
+    await pool.query('INSERT INTO uploads (image_path, caption) VALUES ($1, $2)', [imageUrl, caption]);
 
     res.json({ message: 'Upload successful!' });
   } catch (err) {
