@@ -16,9 +16,9 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: function(origin, callback) {
-    // Allow requests with no origin (like curl, Postman)
+    // Allow requests with no origin (curl, Postman, etc.)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
+    if (!allowedOrigins.includes(origin)) {
       const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}`;
       return callback(new Error(msg), false);
     }
@@ -51,15 +51,6 @@ const checkAdmin = (req, res, next) => {
   return res.status(403).json({ error: 'Admin access required' });
 };
 
-// Database API key protection middleware
-const checkDatabaseApiKey = (req, res, next) => {
-  const expectedKey = process.env.DATABASE_API_KEY;
-  if (!expectedKey || req.headers['x-api-key'] !== expectedKey) {
-    return res.status(401).json({ error: 'Invalid or missing API key for database access' });
-  }
-  next();
-};
-
 // Admin login
 app.post('/login', (req, res) => {
   const { password } = req.body;
@@ -74,7 +65,7 @@ app.post('/logout', (req, res) => {
   req.session.destroy(() => res.json({ ok: true }));
 });
 
-// Postgres setup
+// Postgres setup (uses env keys internally, never exposed to frontend)
 const pool = new Pool({
   user: process.env.PGUSER,
   host: process.env.PGHOST,
@@ -88,7 +79,7 @@ const pool = new Pool({
 const uploadFolder = './uploads';
 if (!fs.existsSync(uploadFolder)) fs.mkdirSync(uploadFolder);
 
-// Multer setup
+// Multer setup for file uploads
 const storage = multer.diskStorage({
   destination: uploadFolder,
   filename: (_, file, cb) => {
@@ -100,8 +91,8 @@ const upload = multer({ storage });
 
 app.use('/uploads', express.static('uploads'));
 
-// Upload endpoint
-app.post('/api/upload', checkAdmin, checkDatabaseApiKey, upload.single('image'), async (req, res) => {
+// Upload endpoint - only requires admin session, no API key needed
+app.post('/api/upload', checkAdmin, upload.single('image'), async (req, res) => {
   try {
     const { caption } = req.body;
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
@@ -116,8 +107,8 @@ app.post('/api/upload', checkAdmin, checkDatabaseApiKey, upload.single('image'),
   }
 });
 
-// Get uploads
-app.get('/api/uploads', checkDatabaseApiKey, async (req, res) => {
+// Get uploads - no API key, no admin required (adjust if needed)
+app.get('/api/uploads', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM uploads ORDER BY created_at DESC');
     res.json(result.rows);
@@ -127,8 +118,8 @@ app.get('/api/uploads', checkDatabaseApiKey, async (req, res) => {
   }
 });
 
-// Post/update announcement
-app.post('/api/announcement', checkAdmin, checkDatabaseApiKey, async (req, res) => {
+// Post/update announcement - requires admin session only
+app.post('/api/announcement', checkAdmin, async (req, res) => {
   try {
     const { content } = req.body;
     if (!content || content.trim() === '') {
@@ -150,8 +141,8 @@ app.post('/api/announcement', checkAdmin, checkDatabaseApiKey, async (req, res) 
   }
 });
 
-// Get announcement
-app.get('/api/announcement', checkDatabaseApiKey, async (req, res) => {
+// Get announcement - no API key or admin needed
+app.get('/api/announcement', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM announcements ORDER BY created_at DESC LIMIT 1');
     res.json(result.rows[0] || null);
