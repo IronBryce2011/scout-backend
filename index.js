@@ -8,53 +8,48 @@ const cors = require('cors');
 const express = require('express');
 const app = express();
 
-// Allowed frontend origins for CORS
 const allowedOrigins = [
   'https://troop423.netlify.app',
   'https://troop423-admin-site.netlify.app'
 ];
 
 app.use(cors({
-  origin: function(origin, callback) {
-    // Allow requests with no origin (curl, Postman, etc.)
-    if (!origin) return callback(null, true);
-    if (!allowedOrigins.includes(origin)) {
-      const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}`;
-      return callback(new Error(msg), false);
-    }
-    return callback(null, true);
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error(`Blocked by CORS: ${origin}`), false);
   },
   credentials: true,
 }));
 
-// Parse JSON bodies
 app.use(express.json());
-
-// Parse URL-encoded bodies (form submissions)
 app.use(express.urlencoded({ extended: true }));
 
-// Session setup with secure cross-origin cookie settings
 app.use(session({
   secret: process.env.SESSION_SECRET || 'scout_secret',
   resave: false,
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',  // HTTPS only in production
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',  // cross-site cookies
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
   },
 }));
 
-// Admin auth middleware
+// Neon PostgreSQL connection
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
+
+// Admin session middleware
 const checkAdmin = (req, res, next) => {
-  if (req.session && req.session.isAdmin) return next();
-  return res.status(403).json({ error: 'Admin access required' });
+  if (req.session?.isAdmin) return next();
+  res.status(403).json({ error: 'Admin access required' });
 };
 
-// Admin login
+// Admin login/logout
 app.post('/login', (req, res) => {
-  const { password } = req.body;
-  if (password === process.env.ADMIN_PASSWORD) {
+  if (req.body.password === process.env.ADMIN_PASSWORD) {
     req.session.isAdmin = true;
     return res.json({ ok: true });
   }
@@ -65,33 +60,21 @@ app.post('/logout', (req, res) => {
   req.session.destroy(() => res.json({ ok: true }));
 });
 
-// Postgres setup (uses env keys internally, never exposed to frontend)
-const pool = new Pool({
-  user: process.env.PGUSER,
-  host: process.env.PGHOST,
-  database: process.env.PGDATABASE,
-  password: process.env.PGPASSWORD,
-  port: process.env.PGPORT,
-  ssl: { rejectUnauthorized: false }
-});
-
-// Upload folder setup
+// Multer upload setup
 const uploadFolder = './uploads';
 if (!fs.existsSync(uploadFolder)) fs.mkdirSync(uploadFolder);
 
-// Multer setup for file uploads
 const storage = multer.diskStorage({
   destination: uploadFolder,
   filename: (_, file, cb) => {
-    const uniqueName = `${Date.now()}${path.extname(file.originalname)}`;
-    cb(null, uniqueName);
+    cb(null, `${Date.now()}${path.extname(file.originalname)}`);
   }
 });
 const upload = multer({ storage });
 
 app.use('/uploads', express.static('uploads'));
 
-// Upload endpoint - only requires admin session, no API key needed
+// Upload image (admin only)
 app.post('/api/upload', checkAdmin, upload.single('image'), async (req, res) => {
   try {
     const { caption } = req.body;
@@ -107,7 +90,7 @@ app.post('/api/upload', checkAdmin, upload.single('image'), async (req, res) => 
   }
 });
 
-// Get uploads - no API key, no admin required (adjust if needed)
+// Get all uploads
 app.get('/api/uploads', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM uploads ORDER BY created_at DESC');
@@ -118,20 +101,16 @@ app.get('/api/uploads', async (req, res) => {
   }
 });
 
-// Post/update announcement - requires admin session only
+// Post or update announcement (admin only)
 app.post('/api/announcement', checkAdmin, async (req, res) => {
   try {
     const { content } = req.body;
-    if (!content || content.trim() === '') {
-      return res.status(400).json({ error: 'Announcement content is required' });
-    }
+    if (!content?.trim()) return res.status(400).json({ error: 'Announcement content is required' });
 
     await pool.query(`
       INSERT INTO announcements (id, content)
       VALUES (1, $1)
-      ON CONFLICT (id) DO UPDATE
-      SET content = EXCLUDED.content,
-          created_at = NOW()
+      ON CONFLICT (id) DO UPDATE SET content = EXCLUDED.content, created_at = NOW()
     `, [content]);
 
     res.json({ message: 'Announcement posted successfully' });
@@ -141,7 +120,7 @@ app.post('/api/announcement', checkAdmin, async (req, res) => {
   }
 });
 
-// Get announcement - no API key or admin needed
+// Get latest announcement
 app.get('/api/announcement', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM announcements ORDER BY created_at DESC LIMIT 1');
