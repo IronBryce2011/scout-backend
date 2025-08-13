@@ -12,6 +12,7 @@ const app = express();
 app.set('trust proxy', 1);
 
 const allowedOrigins = [
+  'https://troop423.org',
   'https://troop423.netlify.app',
   'https://troop423-admin-site.netlify.app'
 ];
